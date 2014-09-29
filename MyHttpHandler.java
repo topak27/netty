@@ -63,12 +63,6 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 	}
 
 	@Override
-	public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
-		readCompleted = System.currentTimeMillis();
-		ctx.fireChannelReadComplete();
-	}
-
-	@Override
 	protected void messageReceived(ChannelHandlerContext ctx, final HttpRequest req) throws Exception {
 		final MessageSizeEstimator sizeEstimator = ctx.channel().config().getMessageSizeEstimator();
 		final Request request = new Request(req, ctx.channel().remoteAddress());
@@ -102,10 +96,6 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 				request.received = sizeEstimator.newHandle().size(req);
 				request.sent = sizeEstimator.newHandle().size(response);
 				if (time != 0) request.speed = (request.sent + request.received)/(time);
-				System.out.print(writeCompleted+" ");
-				System.out.print(writeStarted+" ");
-				System.out.print(readCompleted+" ");
-				System.out.println(readStarted);
 			}
 		});
 		ctx.close();
