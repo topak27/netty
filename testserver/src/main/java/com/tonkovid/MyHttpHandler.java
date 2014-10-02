@@ -29,7 +29,7 @@ import java.util.Map;
  */
 public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 
-	private static final List<Request> totalRequestList = new ArrayList<>(10000);
+	private static final List<Request> totalRequestList = new ArrayList<Request>(10000);
 	private static final Map<String, Integer> redirectMap = new HashMap<>(50);
 	private static final DefaultChannelGroup activeChannels  = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
 	private final boolean autoRelease = true;
@@ -66,27 +66,31 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 	protected void messageReceived(ChannelHandlerContext ctx, final HttpRequest req) throws Exception {
 		final MessageSizeEstimator sizeEstimator = ctx.channel().config().getMessageSizeEstimator();
 		final Request request = new Request(req, ctx.channel().remoteAddress());
-		final FullHttpResponse response;
-		totalRequestList.add(request);
-		readCompleted = System.currentTimeMillis();
 		QueryStringDecoder queryStringDecoder = new QueryStringDecoder(req.getUri());
-
-		switch (queryStringDecoder.path()) {
-		case "/hello":
-			response = helloResponse(ctx);
-			break;
-		case "/redirect":
-			response = redirectResponse(ctx, queryStringDecoder);
-			break;
-		case "/status":
-			response = statusResponse(ctx);
-			break;
-		default:
-			response = _404Response(ctx);
-			break;
+		FullHttpResponse response = _404Response(ctx);
+		readCompleted = System.currentTimeMillis();
+		
+		if (queryStringDecoder.path().equals("/status")) {
+			synchronized (totalRequestList) {
+				totalRequestList.add(request);	
+				response = statusResponse(ctx);
+			}
+		} else {
+			synchronized (totalRequestList) {
+				totalRequestList.add(request);	
+			}
+			switch (queryStringDecoder.path()) {
+			case "/hello":
+				response = helloResponse(ctx);
+				break;
+			case "/redirect":
+				response = redirectResponse(ctx, queryStringDecoder);
+				break;
+			}
 		}
 
 		writeStarted = System.currentTimeMillis();
+		final FullHttpResponse resp = response;
 		ctx.writeAndFlush(response).addListener(new ChannelFutureListener() {
 
 			@Override
@@ -94,7 +98,7 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 				writeCompleted = System.currentTimeMillis();
 				double time = (writeCompleted - writeStarted) + (readCompleted - readStarted);
 				request.received = sizeEstimator.newHandle().size(req);
-				request.sent = sizeEstimator.newHandle().size(response);
+				request.sent = sizeEstimator.newHandle().size(resp);
 				if (time != 0) request.speed = (request.sent + request.received)/(time);
 			}
 		});
