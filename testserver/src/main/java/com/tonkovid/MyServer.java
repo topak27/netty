@@ -1,7 +1,6 @@
 package com.tonkovid;
 
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.EventLoopGroup;
 import io.netty.channel.local.LocalAddress;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -20,9 +19,9 @@ public class MyServer {
 	}
 
 	public void run() throws Exception {
-		EventLoopGroup bossGroup = new NioEventLoopGroup();
-		EventLoopGroup workerGroup = new NioEventLoopGroup();	
-
+		NioEventLoopGroup bossGroup = new NioEventLoopGroup();
+		NioEventLoopGroup workerGroup = new NioEventLoopGroup();	
+		
 		try {
 			ServerBootstrap b = new ServerBootstrap();
 			b.localAddress(new LocalAddress(domName))
