@@ -88,8 +88,7 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 	}
 
 	/**
-	 * Sends "Hello, World!" string after 10 sec., 
-	 * which waits for at the back thread
+	 * Sends "Hello, World!" string after 10 sec.
 	 * @throws InterruptedException 
 	 */
 	private void helloResponse(ChannelHandlerContext ctx) throws InterruptedException {
@@ -100,7 +99,6 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 			@Override
 			public void run() {
 				ctx.writeAndFlush(response).addListener(new MyResponseListener(ctx, response));
-				ctx.close();
 			}
 		}, 10, TimeUnit.SECONDS);
 	}
