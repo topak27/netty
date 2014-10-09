@@ -4,7 +4,6 @@ import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpResponseStatus.TEMPORARY_REDIRECT;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
-
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -13,26 +12,29 @@ import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.QueryStringDecoder;
-import io.netty.util.AttributeKey;
 import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
+import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
  * @author Alexey Tonkovid 2014
  */
 public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
-
-	private static final List<Connection> totalConnectionList = new ArrayList<Connection>(10000);
-	private static final Map<String, Integer> redirectMap = new HashMap<>(50);
-	private static final DefaultChannelGroup activeChannels  = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
-	private AttributeKey<Connection> attrConnection = AttributeKey.valueOf("attrConnection");
+	static final Set<String> ipSet = new HashSet<>();
+	static final Map<String, Integer> redirectMap = new HashMap<>();
+	private static final DefaultEventExecutorGroup statusResponseExecutor = new DefaultEventExecutorGroup(8);
+	static final List<Connection> totalConnectionList = new ArrayList<Connection>(10000);
+	static final DefaultChannelGroup activeChannels  = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
+	private Connection connection;
 
 	@Override
 	public void channelActive(ChannelHandlerContext ctx) throws Exception {
@@ -41,9 +43,8 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 
 	@Override
 	public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-		Connection connection = new Connection(ctx);
-		connection.setReadStarted(System.currentTimeMillis());
-		ctx.attr(attrConnection).set(connection);
+		connection = new Connection(ctx);
+		connection.setReadStarted(System.nanoTime());
 		boolean autoRelease = true;
 		boolean release = true;
 		try {
@@ -64,8 +65,7 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 	@Override
 	protected void messageReceived(ChannelHandlerContext ctx, HttpRequest req) throws Exception {
 		QueryStringDecoder queryStringDecoder = new QueryStringDecoder(req.getUri());
-		Connection connection = ctx.attr(attrConnection).get();
-		connection.setReadCompleted(System.currentTimeMillis());
+		connection.setReadCompleted(System.nanoTime());
 		connection.setRequest(req);
 
 		synchronized (totalConnectionList) {
@@ -95,10 +95,11 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 		FullHttpResponse response; 
 
 		response = new DefaultFullHttpResponse (HTTP_1_1, OK, Unpooled.copiedBuffer("Hello world!", CharsetUtil.UTF_8));
+		connection.setResponse(response);
 		ctx.channel().eventLoop().schedule(new Runnable() {              
 			@Override
 			public void run() {
-				ctx.writeAndFlush(response).addListener(new MyResponseListener(ctx, response));
+				ctx.writeAndFlush(response).addListener(new MyResponseListener(ctx, connection));
 			}
 		}, 10, TimeUnit.SECONDS);
 	}
@@ -122,7 +123,8 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 
 			response.headers().set("LOCATION", url);
 		}
-		ctx.writeAndFlush(response).addListener(new MyResponseListener(ctx, response));
+		connection.setResponse(response);
+		ctx.writeAndFlush(response).addListener(new MyResponseListener(ctx, connection));
 	}
 
 	/**
@@ -130,7 +132,7 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 	 * @throws Exception 
 	 */
 	private void statusResponse(ChannelHandlerContext ctx) throws Exception {
-		new StatusResponse(ctx, totalConnectionList, activeChannels, redirectMap).call();
+		statusResponseExecutor.submit(new StatusResponse(ctx, connection));
 	}
 
 	/**
@@ -138,7 +140,8 @@ public class MyHttpHandler extends SimpleChannelInboundHandler<HttpRequest> {
 	 */
 	private void _404Response(ChannelHandlerContext ctx) {
 		FullHttpResponse response = new DefaultFullHttpResponse (HTTP_1_1, NOT_FOUND);
-		ctx.writeAndFlush(response).addListener(new MyResponseListener(ctx, response));
+		connection.setResponse(response);
+		ctx.writeAndFlush(response).addListener(new MyResponseListener(ctx, connection));
 	}
 
 	@Override

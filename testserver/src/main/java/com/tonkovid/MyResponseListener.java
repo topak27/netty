@@ -3,25 +3,24 @@ package com.tonkovid;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.http.FullHttpResponse;
-import io.netty.util.AttributeKey;
+import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 
 public class MyResponseListener implements ChannelFutureListener {
-	private AttributeKey<Connection> attrConnection = AttributeKey.valueOf("attrConnection");
-	ChannelHandlerContext ctx;
-	Connection connection;
+	private ChannelTrafficShapingHandler trafficHandler;
+	private Connection connection;
 
-	public MyResponseListener(ChannelHandlerContext ctx, FullHttpResponse response) {
+	public MyResponseListener(ChannelHandlerContext ctx, Connection conn) {
 		super();
-		this.ctx = ctx;
-		connection = ctx.attr(attrConnection).get();
-		connection.setWriteStarted(System.currentTimeMillis());
-		connection.setResponse(response);
+		this.connection = conn;
+		trafficHandler = (ChannelTrafficShapingHandler) ctx.channel().pipeline().toMap().get("trafficHandler");
+		connection.setBytesReceived(trafficHandler.trafficCounter().cumulativeReadBytes());
+		connection.setWriteStarted(System.nanoTime());
 	}
 
 	@Override
 	public void operationComplete(ChannelFuture future) throws Exception {
-		connection.setWriteCompleted(System.currentTimeMillis());
+		connection.setWriteCompleted(System.nanoTime());
+		connection.setBytesSent(trafficHandler.trafficCounter().cumulativeWrittenBytes());
 		future.channel().close();
 	}
 

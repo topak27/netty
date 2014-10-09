@@ -12,7 +12,6 @@ import io.netty.util.CharsetUtil;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -23,66 +22,64 @@ import java.util.concurrent.Callable;
  * @author Alexey Tonkovid 2014
  */
 class StatusResponse implements Callable<ChannelFuture>{
-	ChannelHandlerContext ctx;
-	List<Connection> totalConnectionList;
-	Map<String, Integer> redirectMap;
-	DefaultChannelGroup activeChannels;
+	private List<Connection> totalConnectionList = MyHttpHandler.totalConnectionList;
+	private DefaultChannelGroup activeChannels = MyHttpHandler.activeChannels;
+	private Map<String, Integer> redirectMap = MyHttpHandler.redirectMap;
+	private Set<String> ipSet = MyHttpHandler.ipSet;
+	private ChannelHandlerContext ctx;
+	private Connection connection;
 
-
-	public StatusResponse(ChannelHandlerContext ctx, List<Connection> totalConnectionList, 
-			DefaultChannelGroup activeChannels, Map<String, Integer> redirectMap) {
-
-		this.totalConnectionList = totalConnectionList;
-		this.activeChannels = activeChannels;
-		this.redirectMap = redirectMap;
+	public StatusResponse(ChannelHandlerContext ctx, Connection connection) {
 		this.ctx = ctx;
+		this.connection = connection;
 	}
 
 	@Override
 	public ChannelFuture call() throws Exception {
 		StringBuilder content = new StringBuilder();
 
-		synchronized (totalConnectionList) {
-			content.append(getActiveChannels(activeChannels))
-			.append(getTotalRequests())
-			.append(getTotalUniqueRequests())
-			.append(getRequestToIPtable())
-			.append(getRedirectTable(redirectMap))
-			.append(getLogTable());	
-		}
+		content.append(getActiveChannels())
+		.append(getTotalRequests())
+		.append(getTotalUniqueRequests())
+		.append(getRequestToIPtable())
+		.append(getRedirectTable())
+		.append(getLogTable());	
 
 		FullHttpResponse response = new DefaultFullHttpResponse (HTTP_1_1, OK, Unpooled.copiedBuffer(content, CharsetUtil.UTF_8));
-		return ctx.writeAndFlush(response).addListener(new MyResponseListener(ctx, response));
+		connection.setResponse(response);
+		return ctx.writeAndFlush(response).addListener(new MyResponseListener(ctx, connection));
 	}
 
-	public String getLogTable() {
-		List<Connection> sublist;
+	private String getLogTable() {
+		List<Connection> sublist = new ArrayList<Connection>(16);
 		StringBuilder content = new StringBuilder();
 		int size = totalConnectionList.size();
 
-		if (size > 16) {
-			sublist = totalConnectionList.subList(size-16, size);
-		} else {
-			sublist = totalConnectionList;
+		synchronized (totalConnectionList) {
+			if (size > 16) {
+				sublist.addAll(totalConnectionList.subList(size-16, size));
+			} else {
+				sublist.addAll(totalConnectionList);
+			}
 		}
 
 		content.append("\"Log of last 16\" table\n");
 
 		for (Iterator<Connection> iterator = sublist.iterator(); iterator.hasNext();) {
-			Connection request = iterator.next();
-			content.append(totalConnectionList.indexOf(request) + 1).append('\t')
-			.append(request.toString()).append('\n');
+			Connection connection = iterator.next();
+			content.append(totalConnectionList.indexOf(connection) + 1).append('\t')
+			.append(connection.toString()).append('\n');
 		}	
 		return content.toString();
 	}
 
-	public String getActiveChannels(DefaultChannelGroup activeChannels) {
+	private String getActiveChannels() {
 		StringBuilder content = new StringBuilder();
 		content.append("Active channels: ").append(activeChannels.size()).append("\n");
 		return content.toString();
 	}
 
-	public String getRedirectTable(Map<String, Integer> redirectMap) {
+	String getRedirectTable() {
 		StringBuilder content = new StringBuilder();
 		content.append("\"Redirect\" table\n");
 
@@ -94,11 +91,14 @@ class StatusResponse implements Callable<ChannelFuture>{
 		return content.toString();
 	}
 
-	public String getRequestToIPtable() {
+	private String getRequestToIPtable() {
 		StringBuilder content = new StringBuilder();
+		List<Connection> totalList = new ArrayList<Connection>();
 		Map<String, List<Connection>> requestToIPmap = new HashMap<>();
 
-		for (Iterator<Connection> iterator = totalConnectionList.iterator(); iterator.hasNext();) {
+		totalList.addAll(totalConnectionList);
+
+		for (Iterator<Connection> iterator = totalList.iterator(); iterator.hasNext();) {
 			Connection request = iterator.next();
 			String ip = request.getIp().getHostString();
 
@@ -123,18 +123,13 @@ class StatusResponse implements Callable<ChannelFuture>{
 		return content.toString();
 	}
 
-	public String getTotalUniqueRequests() {
-		Set<String> ipSet = new HashSet<>(10);
+	private String getTotalUniqueRequests() {
 		StringBuilder content = new StringBuilder();
-
-		for (Connection request : totalConnectionList) {
-			ipSet.add(request.getIp().getHostString());
-		}
 		content.append("Total unique requests: ").append(ipSet.size()).append("\n\n");
 		return content.toString();
 	}
 
-	public String getTotalRequests() {
+	private String getTotalRequests() {
 		StringBuilder content = new StringBuilder();
 		content.append("Total requests: ").append(totalConnectionList.size()).append("\n");
 		return content.toString();
