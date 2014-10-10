@@ -87,9 +87,9 @@ class Connection {
 		this.writeCompleted = writeCompleted;
 	}
 
-	public double getSpeed() {
+	public long getSpeed() {
 		double time = ((readCompleted - readStarted) + (writeCompleted - writeStarted))/1000;
-		return (bytesReceived + bytesSent)*1024/time;
+		return (long) ((bytesReceived + bytesSent)*1000000/(time*1024));
 	}
 
 	@Override
